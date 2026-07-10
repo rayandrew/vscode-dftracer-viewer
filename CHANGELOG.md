@@ -1,5 +1,13 @@
 # Changelog
 
+All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
+
+## 0.0.1 (2026-07-10)
+
+### Features
+
+- initialize dftracer viewer extension ([3897998](https://github.com/rayandrew/vscode-dftracer-viewer/commit/3897998aee01e2a298c3bd19dbb0a87b0356ded6))
+
 ## 0.0.1
 
 Initial release.
