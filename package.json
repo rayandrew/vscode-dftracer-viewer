@@ -1,0 +1,225 @@
+{
+  "name": "dftracer-viewer",
+  "displayName": "DFTracer Viewer",
+  "description": "Explore DFTracer traces (.pfw/.pfw.gz) in an interactive, query-on-demand timeline: pan/zoom with density LOD, per-rank/host lanes, flamegraph, gap analysis, and I/O bandwidth.",
+  "version": "0.0.1",
+  "publisher": "rayandrew",
+  "author": {
+    "name": "Ray Andrew"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#12141a",
+    "theme": "dark"
+  },
+  "keywords": [
+    "dftracer",
+    "trace",
+    "timeline",
+    "profiling",
+    "hpc",
+    "i/o",
+    "perfetto",
+    "flamegraph"
+  ],
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "license": "MIT",
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rayandrew/vscode-dftracer-viewer"
+  },
+  "homepage": "https://github.com/rayandrew/vscode-dftracer-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/rayandrew/vscode-dftracer-viewer/issues"
+  },
+  "qna": "marketplace",
+  "pricing": "Free",
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCustomEditor:dftracer.viewer"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dftracer.viewer.viewTrace",
+        "title": "DFTracer: View Trace"
+      },
+      {
+        "command": "dftracer.viewer.viewTraces",
+        "title": "DFTracer: View Traces"
+      },
+      {
+        "command": "dftracer.viewer.selectServer",
+        "title": "DFTracer: Select Server"
+      },
+      {
+        "command": "dftracer.viewer.updateServer",
+        "title": "DFTracer: Update Server"
+      },
+      {
+        "command": "dftracer.viewer.showLogs",
+        "title": "DFTracer: Show Logs"
+      },
+      {
+        "command": "dftracer.viewer.openLogFile",
+        "title": "DFTracer: Open Log File"
+      },
+      {
+        "command": "dftracer.viewer.setServerLogLevel",
+        "title": "DFTracer: Set Server Log Level"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "dftracer.viewer",
+        "displayName": "DFTracer Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.pfw"
+          },
+          {
+            "filenamePattern": "*.pfw.gz"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "dftracer.viewer.viewTraces",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@30"
+        },
+        {
+          "command": "dftracer.viewer.viewTrace",
+          "when": "resourceFilename =~ /\\.pfw(\\.gz)?$/",
+          "group": "navigation@30"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "dftracer.viewer.viewTrace"
+        },
+        {
+          "command": "dftracer.viewer.viewTraces",
+          "when": "false"
+        },
+        {
+          "command": "dftracer.viewer.selectServer"
+        },
+        {
+          "command": "dftracer.viewer.updateServer"
+        },
+        {
+          "command": "dftracer.viewer.showLogs"
+        },
+        {
+          "command": "dftracer.viewer.openLogFile"
+        },
+        {
+          "command": "dftracer.viewer.setServerLogLevel"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DFTracer",
+      "properties": {
+        "dftracer.viewer.serverPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Path to a `dftracer_server` binary. When set, the extension uses it instead of downloading a prebuilt server. Per-machine: stored on the remote host when connected via Remote-SSH / Codespaces."
+        },
+        "dftracer.viewer.serverRelease": {
+          "type": "string",
+          "default": "latest",
+          "scope": "machine",
+          "markdownDescription": "Which [dftracer-utils-prebuilds](https://github.com/rayandrew/dftracer-utils-prebuilds) release to download the server from: `latest`, or a version tag such as `v1.2.3.post5`. Ignored when `#dftracer.viewer.serverPath#` is set."
+        },
+        "dftracer.viewer.indexDir": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Directory for the trace index, passed as `--index-dir`. Leave empty to build the index in a temporary directory that is removed when the viewer closes; set a path to keep the index across sessions (faster re-opens). Per-machine."
+        },
+        "dftracer.viewer.serverLogLevel": {
+          "type": "string",
+          "default": "default",
+          "enum": [
+            "default",
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "off"
+          ],
+          "scope": "machine",
+          "markdownDescription": "Log verbosity for `dftracer_server` (`--log-level`). Server output appears in the **DFTracer Viewer** output channel. Raise it to `debug` or `trace` when reporting an issue. Also available via **DFTracer: Set Server Log Level**."
+        },
+        "dftracer.viewer.extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "description": "Extra command-line arguments passed to dftracer_server. Per-machine."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc --noEmit -p ./",
+    "fixtures": "node scripts/gen-fixture.mjs",
+    "pretest": "npm run compile",
+    "test": "vscode-test",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "release": "commit-and-tag-version",
+    "release:dry": "commit-and-tag-version --dry-run",
+    "release:minor": "commit-and-tag-version --release-as minor",
+    "release:major": "commit-and-tag-version --release-as major",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,js,mjs,json,md,yml,yaml}": "prettier --write",
+    "*.ts": "eslint --fix"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.5.0",
+    "@commitlint/config-conventional": "^19.5.0",
+    "@eslint/js": "^9.13.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.74.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^3.9.2",
+    "commit-and-tag-version": "^12.5.0",
+    "eslint": "^9.13.0",
+    "husky": "^9.1.6",
+    "lint-staged": "^15.2.10",
+    "mocha": "^11.7.6",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.11.0"
+  }
+}

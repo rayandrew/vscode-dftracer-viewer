@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1f2a"/>
+      <stop offset="1" stop-color="#0d0f14"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="url(#bg)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="47.5" fill="none" stroke="#2a2f3a" stroke-width="1"/>
+  <!-- ruler ticks -->
+  <g fill="#3a4150">
+    <rect x="48" y="46" width="2" height="14" rx="1"/>
+    <rect x="96" y="46" width="2" height="14" rx="1"/>
+    <rect x="144" y="46" width="2" height="14" rx="1"/>
+    <rect x="192" y="46" width="2" height="14" rx="1"/>
+  </g>
+  <!-- timeline lanes -->
+  <g>
+    <rect x="48" y="80" width="120" height="20" rx="6" fill="#4fb8c9"/>
+    <rect x="176" y="80" width="32" height="20" rx="6" fill="#4fb8c9"/>
+    <rect x="48" y="112" width="56" height="20" rx="6" fill="#e0a458"/>
+    <rect x="112" y="112" width="96" height="20" rx="6" fill="#e0a458"/>
+    <rect x="48" y="144" width="88" height="20" rx="6" fill="#7c9cf0"/>
+    <rect x="144" y="144" width="24" height="20" rx="6" fill="#7c9cf0"/>
+    <rect x="48" y="176" width="40" height="20" rx="6" fill="#c98fd0"/>
+    <rect x="96" y="176" width="112" height="20" rx="6" fill="#c98fd0"/>
+  </g>
+  <!-- playhead -->
+  <rect x="127" y="44" width="2" height="164" rx="1" fill="#f2f4f8" opacity="0.55"/>
+</svg>

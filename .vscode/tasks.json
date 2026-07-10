@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "type": "npm", "script": "compile", "problemMatcher": "$tsc", "label": "npm: compile" },
+    {
+      "label": "gen: fixtures",
+      "type": "shell",
+      "command": "node scripts/gen-fixture.mjs",
+      "problemMatcher": []
+    },
+    {
+      "label": "dev: prepare",
+      "dependsOn": ["npm: compile", "gen: fixtures"],
+      "problemMatcher": []
+    }
+  ]
+}
