@@ -150,6 +150,13 @@
           "scope": "machine",
           "markdownDescription": "Which [dftracer-utils-prebuilds](https://github.com/rayandrew/dftracer-utils-prebuilds) release to download the server from: `latest`, or a version tag such as `v1.2.3.post5`. Ignored when `#dftracer.viewer.serverPath#` is set."
         },
+        "dftracer.viewer.serverStartTimeoutSec": {
+          "type": "number",
+          "default": 120,
+          "minimum": 0,
+          "scope": "machine",
+          "markdownDescription": "Give up on a starting `dftracer_server` after this many seconds of **silence** (no new log output). A trace that keeps logging indexing progress is never killed, however long it takes; this only trips when the server appears stuck. You can always stop it yourself with the **Stop server** button. Set to `0` to wait indefinitely. Per-machine."
+        },
         "dftracer.viewer.indexDir": {
           "type": "string",
           "default": "",

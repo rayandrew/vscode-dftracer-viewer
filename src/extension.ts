@@ -300,6 +300,10 @@ class Viewer {
   private lastDir?: string;
   private lastFile?: string;
   private disposed = false;
+  // The trace whose server is currently starting, and whether the user asked
+  // to cancel that startup.
+  private loadingDir?: string;
+  private cancelled = false;
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -351,6 +355,10 @@ class Viewer {
     // Release before acquiring: reopening the same trace would otherwise
     // release the server we just started and connect to a dead port.
     this.release();
+    // Live progress in the panel itself, not just the corner notification.
+    this.loadingDir = traceDir;
+    this.cancelled = false;
+    this.panel.webview.html = loadingScreenHtml(file);
     try {
       const port = await vscode.window.withProgress(
         {
@@ -359,11 +367,17 @@ class Viewer {
           cancellable: false,
         },
         async (progress) => {
-          const report = (message: string) => progress.report({ message });
+          const report = (message: string) => {
+            progress.report({ message });
+            void this.panel.webview.postMessage({ type: "status", message });
+          };
+          const onLog = (line: string) => {
+            void this.panel.webview.postMessage({ type: "log", line });
+          };
           const binary = await resolveServerBinary(this.context, report);
           if (this.disposed) throw new Error("cancelled");
-          report("Starting dftracer_server...");
-          const p = await manager.acquire(traceDir, binary);
+          report("Starting dftracer_server…");
+          const p = await manager.acquire(traceDir, binary, report, onLog);
           this.traceDir = traceDir; // we now hold this server's reference
           return p;
         },
@@ -382,9 +396,22 @@ class Viewer {
       this.panel.webview.html = bakeHtml(html, apiBase, file ?? "");
     } catch (err) {
       if (this.disposed) return;
+      // User cancelled the startup — show a calm idle screen, not an error.
+      if (this.cancelled) {
+        log.info(`Cancelled starting server for ${file ?? traceDir}`);
+        this.panel.webview.html = loadScreenHtml(
+          "Server startup cancelled. Open the trace again to retry.",
+          file,
+          false,
+          this.serverPath(),
+        );
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       log.error(`Failed to open ${file ?? traceDir}: ${msg}`);
       this.panel.webview.html = loadScreenHtml(msg, file, true, this.serverPath());
+    } finally {
+      this.loadingDir = undefined;
     }
   }
 
@@ -417,6 +444,11 @@ class Viewer {
       await this.show(this.lastDir, this.lastFile);
     } else if (m.type === "retry") {
       await this.show(this.lastDir, this.lastFile);
+    } else if (m.type === "cancelLoad") {
+      if (this.loadingDir) {
+        this.cancelled = true;
+        manager.stop(this.loadingDir); // kills the process -> pending acquire rejects
+      }
     } else if (m.type === "updateServer") {
       await updateServer(this.context);
     } else if (m.type === "selectRelease") {
@@ -551,6 +583,73 @@ function page(inner: string): string {
 <html>
   <head><meta charset="utf-8" /><style>${SHELL_STYLES}</style></head>
   <body><div class="card">${inner}</div><script>${CLICK_SCRIPT}</script></body>
+</html>`;
+}
+
+// Shown in the panel while the server starts/indexes. A client-side elapsed
+// timer keeps it feeling alive; the extension posts { type:"status" } messages
+// to update the detail line with the server's own progress output.
+const LOADING_SCRIPT = `
+  const api = acquireVsCodeApi();
+  const started = Date.now();
+  const elapsedEl = document.getElementById("elapsed");
+  const statusEl = document.getElementById("status");
+  const logEl = document.getElementById("log");
+  const cancelBtn = document.getElementById("cancel");
+  if (cancelBtn) cancelBtn.addEventListener("click", () => {
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = "Stopping…";
+    if (statusEl) statusEl.textContent = "Stopping dftracer_server…";
+    api.postMessage({ type: "cancelLoad" });
+  });
+  const MAX_LINES = 500;
+  setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    if (elapsedEl) elapsedEl.textContent = s + "s elapsed";
+  }, 1000);
+  function append(line) {
+    if (!logEl) return;
+    const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
+    const row = document.createElement("div");
+    row.className = "logline";
+    row.textContent = line;
+    logEl.appendChild(row);
+    while (logEl.childElementCount > MAX_LINES) logEl.removeChild(logEl.firstChild);
+    if (atBottom) logEl.scrollTop = logEl.scrollHeight; // follow tail unless scrolled up
+  }
+  window.addEventListener("message", (e) => {
+    const m = e.data || {};
+    if (m.type === "status" && statusEl && m.message) statusEl.textContent = m.message;
+    else if (m.type === "log" && m.line) append(m.line);
+  });
+`;
+
+function loadingScreenHtml(file?: string, message = "Starting dftracer_server…"): string {
+  return `<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8" /><style>${SHELL_STYLES}
+  .logwrap { margin-top:16px; }
+  .logcap { color:var(--dim); font-size:10px; letter-spacing:.14em; text-transform:uppercase; margin:0 2px 6px; }
+  .log { max-height:180px; overflow-y:auto; background:#070806; border:1px solid var(--border);
+    border-radius:7px; padding:9px 11px; font-size:11px; line-height:1.55; color:var(--muted); }
+  .logline { white-space:pre-wrap; word-break:break-word; }
+  .log:empty::after { content:"waiting for server output…"; color:var(--dim); }
+  </style></head>
+  <body><div class="card">
+    ${strip(true)}
+    ${brand()}
+    <p class="msg" id="status">${escHtml(message)}</p>
+    <p class="hint" id="elapsed">0s elapsed</p>
+    ${file ? `<div class="file">${escHtml(file)}</div>` : ""}
+    <div class="logwrap">
+      <div class="logcap">dftracer_server output</div>
+      <div class="log" id="log"></div>
+    </div>
+    <div class="row" style="margin-top:16px;">
+      <button class="btn ghost" id="cancel">Stop server</button>
+    </div>
+    <p class="hint">Large traces take longer to index. Adjust the wait limit with <b>dftracer.viewer.serverStartTimeoutSec</b>.</p>
+  </div><script>${LOADING_SCRIPT}</script></body>
 </html>`;
 }
 

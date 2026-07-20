@@ -29,14 +29,33 @@ function freePort(): Promise<number> {
 
 interface StderrRef {
   text: string;
+  lastActivity: number; // Date.now() of the most recent server output line
+}
+
+// The newest non-empty line the server logged — the most useful "what is it
+// doing right now" signal to surface while we wait for it to come up.
+function lastLogLine(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim());
+  for (let i = lines.length - 1; i >= 0; i--) if (lines[i]) return lines[i];
+  return "";
+}
+
+interface WaitOpts {
+  // Give up after this many ms of *silence* (no new server output). A trace
+  // that keeps logging progress is never killed, however long it takes.
+  // <= 0 means wait indefinitely.
+  idleMs: number;
+  onProgress?: (message: string) => void;
 }
 
 function waitReady(
   port: number,
   proc: child_process.ChildProcess,
   stderr: StderrRef,
-  timeoutMs = 20000,
+  opts: WaitOpts,
 ): Promise<void> {
+  const { idleMs, onProgress } = opts;
+  const noTimeout = idleMs <= 0;
   return new Promise((resolve, reject) => {
     let done = false;
     const finish = (fn: () => void) => {
@@ -63,10 +82,29 @@ function waitReady(
       ),
     );
     const start = Date.now();
+    const report = () => {
+      if (!onProgress) return;
+      const secs = Math.round((Date.now() - start) / 1000);
+      const line = lastLogLine(stderr.text);
+      onProgress(line ? `${line} (${secs}s)` : `Preparing trace… (${secs}s)`);
+    };
     const retry = () => {
       if (done) return;
-      if (Date.now() - start > timeoutMs) {
-        finish(() => reject(new Error("dftracer_server did not become ready in time.")));
+      report();
+      const idleFor = Date.now() - stderr.lastActivity;
+      if (!noTimeout && idleFor > idleMs) {
+        const idleSecs = Math.round(idleFor / 1000);
+        const tail = stderr.text.trim().slice(-600);
+        finish(() =>
+          reject(
+            new Error(
+              `dftracer_server produced no output for ${idleSecs}s and never became ready — ` +
+                `it looks stuck. Adjust the idle limit with ` +
+                `'dftracer.viewer.serverStartTimeoutSec' (0 waits indefinitely).` +
+                `${tail ? `\n\nLast server output:\n${tail}` : ""}`,
+            ),
+          ),
+        );
       } else {
         setTimeout(tryOnce, 250);
       }
@@ -94,18 +132,28 @@ function waitReady(
 export class ServerManager {
   private servers = new Map<string, ServerInstance>();
 
-  acquire(traceDir: string, binary: string): Promise<number> {
+  acquire(
+    traceDir: string,
+    binary: string,
+    onProgress?: (message: string) => void,
+    onLog?: (line: string) => void,
+  ): Promise<number> {
     let inst = this.servers.get(traceDir);
     if (inst && inst.proc && inst.proc.exitCode === null) {
       inst.refs += 1;
       return inst.ready;
     }
-    inst = this.start(traceDir, binary);
+    inst = this.start(traceDir, binary, onProgress, onLog);
     this.servers.set(traceDir, inst);
     return inst.ready;
   }
 
-  private start(traceDir: string, binary: string): ServerInstance {
+  private start(
+    traceDir: string,
+    binary: string,
+    onProgress?: (message: string) => void,
+    onLog?: (line: string) => void,
+  ): ServerInstance {
     const cfg = vscode.workspace.getConfiguration("dftracer.viewer");
     const userIndexDir = cfg.get<string>("indexDir", "").trim();
     const inst: ServerInstance = { refs: 1, ready: Promise.resolve(0) };
@@ -127,11 +175,16 @@ export class ServerManager {
       log.debug(`args: ${args.join(" ")}`);
       const proc = child_process.spawn(binary, args, { stdio: ["ignore", "pipe", "pipe"] });
       inst.proc = proc;
-      const stderr: StderrRef = { text: "" };
+      const stderr: StderrRef = { text: "", lastActivity: Date.now() };
       const forward = (d: Buffer) => {
         const s = d.toString();
         stderr.text += s;
-        for (const line of s.split("\n")) if (line.trim()) log.info(`[server] ${line}`);
+        for (const line of s.split("\n")) {
+          if (!line.trim()) continue;
+          stderr.lastActivity = Date.now(); // reset the idle watchdog on progress
+          log.info(`[server] ${line}`);
+          onLog?.(line);
+        }
       };
       proc.stdout?.on("data", forward);
       proc.stderr?.on("data", forward);
@@ -139,7 +192,8 @@ export class ServerManager {
         log.info(`dftracer_server on :${port} exited (code ${code ?? signal})`),
       );
 
-      await waitReady(port, proc, stderr);
+      const idleMs = Math.round(cfg.get<number>("serverStartTimeoutSec", 120) * 1000);
+      await waitReady(port, proc, stderr, { idleMs, onProgress });
       log.info(`dftracer_server ready on :${port}`);
       return port;
     })();
@@ -160,6 +214,17 @@ export class ServerManager {
       removeIndexTemp(inst);
       this.servers.delete(traceDir);
     }
+  }
+
+  // Force-stop the server for a trace regardless of ref count. Used to cancel a
+  // still-starting server; killing the process makes the pending waitReady()
+  // reject, so the awaiting acquire() call unwinds.
+  stop(traceDir: string): void {
+    const inst = this.servers.get(traceDir);
+    if (!inst) return;
+    inst.proc?.kill();
+    removeIndexTemp(inst);
+    this.servers.delete(traceDir);
   }
 
   disposeAll(): void {
