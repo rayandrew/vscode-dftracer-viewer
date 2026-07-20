@@ -30,6 +30,46 @@ interface Release {
   assets: { name: string; url: string }[];
 }
 
+export interface ReleaseInfo {
+  tag: string;
+  prerelease: boolean;
+  publishedAt: string;
+  // True when this release ships a prebuilt asset for the current platform.
+  hasAssetForPlatform: boolean;
+}
+
+// Like platformToken(), but returns null instead of throwing on an
+// unsupported platform, so listing can still succeed.
+function platformSuffixOrNull(): string | null {
+  const osMap: Record<string, string> = { darwin: "darwin", linux: "linux" };
+  const archMap: Record<string, string> = { x64: "x64", arm64: "arm64" };
+  const os = osMap[process.platform];
+  const arch = archMap[process.arch];
+  if (!os || !arch) return null;
+  return `-${os}-${arch}.tar.gz`;
+}
+
+// List releases from the prebuilds repo, newest first.
+export async function listReleases(): Promise<ReleaseInfo[]> {
+  const url = `https://api.github.com/repos/${PREBUILDS_REPO}/releases?per_page=100`;
+  const json = (await httpGetJson(url)) as {
+    tag_name?: string;
+    prerelease?: boolean;
+    published_at?: string;
+    assets?: { name: string }[];
+  }[];
+  if (!Array.isArray(json)) throw new Error("Unexpected response listing releases.");
+  const suffix = platformSuffixOrNull();
+  return json
+    .filter((r) => r.tag_name)
+    .map((r) => ({
+      tag: r.tag_name as string,
+      prerelease: Boolean(r.prerelease),
+      publishedAt: r.published_at ?? "",
+      hasAssetForPlatform: suffix ? (r.assets ?? []).some((a) => a.name.endsWith(suffix)) : false,
+    }));
+}
+
 function httpGetJson(url: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     https

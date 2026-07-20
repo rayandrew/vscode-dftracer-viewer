@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import { ServerManager, fetchServerHtml } from "./server";
-import { clearServerCache, hasCachedServer, resolveServerBinary } from "./download";
+import { clearServerCache, hasCachedServer, listReleases, resolveServerBinary } from "./download";
 import { log, initLogFile, logFileUri } from "./log";
 
 const SERVER_LOG_LEVELS = ["default", "trace", "debug", "info", "warn", "error", "off"];
@@ -20,7 +20,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("dftracer.viewer.viewTraces", (uri?: vscode.Uri) =>
       openFromCommand(context, uri),
     ),
-    vscode.commands.registerCommand("dftracer.viewer.selectServer", () => selectServer()),
+    vscode.commands.registerCommand("dftracer.viewer.selectServer", () => selectServer(context)),
+    vscode.commands.registerCommand("dftracer.viewer.selectServerRelease", () =>
+      selectServerRelease(context),
+    ),
     vscode.commands.registerCommand("dftracer.viewer.updateServer", () => updateServer(context)),
     vscode.commands.registerCommand("dftracer.viewer.showLogs", () => log.show()),
     vscode.commands.registerCommand("dftracer.viewer.openLogFile", () => openLogFile()),
@@ -74,19 +77,27 @@ async function updateServer(context: vscode.ExtensionContext): Promise<void> {
   }
 }
 
-async function selectServer(): Promise<void> {
+async function selectServer(context: vscode.ExtensionContext): Promise<void> {
   const cfg = vscode.workspace.getConfiguration("dftracer.viewer");
   const current = cfg.get<string>("serverPath", "").trim();
+  const release = cfg.get<string>("serverRelease", "latest") || "latest";
+  const usingPrebuilt = !current;
 
-  const DOWNLOAD = "$(cloud-download) Use prebuilt server";
+  const DOWNLOAD = "$(cloud-download) Use latest prebuilt server";
+  const VERSION = "$(versions) Choose a specific version...";
   const BROWSE = "$(folder-opened) Select a dftracer_server binary...";
   const ENTER = "$(edit) Enter server path...";
   const pick = await vscode.window.showQuickPick(
     [
       {
         label: DOWNLOAD,
-        description: current ? "" : "current",
-        detail: "Download and cache the prebuilt server for your platform",
+        description: usingPrebuilt && release === "latest" ? "current" : "",
+        detail: "Download and cache the newest prebuilt server for your platform",
+      },
+      {
+        label: VERSION,
+        description: usingPrebuilt && release !== "latest" ? `current: ${release}` : "",
+        detail: "Pick a specific prebuilt release to download",
       },
       { label: BROWSE, detail: "Pick a dftracer_server executable from disk" },
       {
@@ -97,14 +108,23 @@ async function selectServer(): Promise<void> {
     ],
     {
       title: "DFTracer: Select Server",
-      placeHolder: current ? `Current: ${current}` : "Current: prebuilt (downloaded)",
+      placeHolder: current ? `Current: ${current}` : `Current: prebuilt (${release})`,
     },
   );
   if (!pick) return;
 
+  if (pick.label === VERSION) {
+    await selectServerRelease(context);
+    return;
+  }
+
   let newPath: string | undefined;
   if (pick.label === DOWNLOAD) {
     newPath = "";
+    // Reset to latest so the label matches what gets downloaded.
+    if (release !== "latest") {
+      await cfg.update("serverRelease", "latest", vscode.ConfigurationTarget.Global);
+    }
   } else if (pick.label === BROWSE) {
     const picked = await vscode.window.showOpenDialog({
       canSelectFiles: true,
@@ -139,6 +159,72 @@ async function selectServer(): Promise<void> {
   void vscode.window.showInformationMessage(
     newPath ? `DFTracer server: ${newPath}` : "DFTracer will use the prebuilt server.",
   );
+}
+
+async function selectServerRelease(context: vscode.ExtensionContext): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration("dftracer.viewer");
+  const current = cfg.get<string>("serverRelease", "latest") || "latest";
+
+  interface ReleaseItem extends vscode.QuickPickItem {
+    tag: string;
+  }
+  const items: ReleaseItem[] = [
+    {
+      label: "$(cloud) latest",
+      description: current === "latest" ? "current" : "",
+      detail: "Always download the newest release",
+      tag: "latest",
+    },
+  ];
+
+  let releases;
+  try {
+    releases = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "DFTracer: fetching versions..." },
+      () => listReleases(),
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    void vscode.window.showErrorMessage(`Failed to list server versions: ${msg}`);
+    return;
+  }
+
+  for (const r of releases) {
+    const date = r.publishedAt ? r.publishedAt.slice(0, 10) : "";
+    const badges = [
+      r.prerelease ? "$(beaker) prerelease" : "",
+      r.hasAssetForPlatform ? "" : "$(warning) no build for this platform",
+    ]
+      .filter(Boolean)
+      .join("  ");
+    items.push({
+      label: r.tag === current ? `$(check) ${r.tag}` : r.tag,
+      description: [date, r.tag === current ? "current" : ""].filter(Boolean).join("  "),
+      detail: badges || undefined,
+      tag: r.tag,
+    });
+  }
+
+  const pick = await vscode.window.showQuickPick(items, {
+    title: "DFTracer: Select Server Version",
+    placeHolder: `Current: ${current}`,
+    matchOnDescription: true,
+  });
+  if (!pick || pick.tag === current) return;
+
+  await cfg.update("serverRelease", pick.tag, vscode.ConfigurationTarget.Global);
+  log.info(`Server release set to ${pick.tag}`);
+
+  const custom = cfg.get<string>("serverPath", "").trim();
+  if (custom) {
+    void vscode.window.showWarningMessage(
+      `Server version set to ${pick.tag}, but a custom server path is configured and takes ` +
+        `precedence. Run "DFTracer: Select Server" to clear it and use the prebuilt server.`,
+    );
+    return;
+  }
+
+  await updateServer(context);
 }
 
 async function openLogFile(): Promise<void> {
@@ -333,6 +419,8 @@ class Viewer {
       await this.show(this.lastDir, this.lastFile);
     } else if (m.type === "updateServer") {
       await updateServer(this.context);
+    } else if (m.type === "selectRelease") {
+      await selectServerRelease(this.context);
     } else if (m.type === "settings") {
       void vscode.commands.executeCommand("workbench.action.openSettings", "dftracer.viewer");
     }
@@ -477,6 +565,7 @@ function loadScreenHtml(message: string, file?: string, isError = false, serverP
       <button class="btn ghost" data-act="dir">Open trace folder</button>
       ${isError ? '<button class="btn ghost" data-act="retry">Retry</button>' : ""}
       ${isError ? '<button class="btn ghost" data-act="updateServer">Update server</button>' : ""}
+      ${isError ? '<button class="btn ghost" data-act="selectRelease">Choose version…</button>' : ""}
       <button class="btn ghost" data-act="settings">Settings</button>
     </div>
     <div class="or">or use your own build</div>
@@ -495,8 +584,9 @@ function chooserHtml(file?: string): string {
     ${file ? `<div class="file">${escHtml(file)}</div>` : ""}
     <div class="actions">
       <button class="btn primary" data-act="download">Download prebuilt server</button>
+      <button class="btn ghost" data-act="selectRelease">Choose version…</button>
     </div>
-    <p class="hint">Fetched for macOS or Linux and cached. Swap it later with <b>DFTracer: Update Server</b>.</p>
+    <p class="hint">Fetched for macOS or Linux and cached. Pick a specific release with <b>Choose version…</b>, or swap it later with <b>DFTracer: Update Server</b>.</p>
     <div class="or">or use your own build</div>
     <div class="row">
       <input id="server-path" class="input" type="text" placeholder="/path/to/dftracer_server" />

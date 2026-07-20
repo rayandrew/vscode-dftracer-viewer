@@ -62,6 +62,10 @@
         "title": "DFTracer: Select Server"
       },
       {
+        "command": "dftracer.viewer.selectServerRelease",
+        "title": "DFTracer: Select Server Version"
+      },
+      {
         "command": "dftracer.viewer.updateServer",
         "title": "DFTracer: Update Server"
       },
