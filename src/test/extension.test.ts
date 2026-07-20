@@ -7,6 +7,7 @@ const COMMANDS = [
   "dftracer.viewer.viewTrace",
   "dftracer.viewer.viewTraces",
   "dftracer.viewer.selectServer",
+  "dftracer.viewer.selectServerRelease",
   "dftracer.viewer.updateServer",
   "dftracer.viewer.showLogs",
   "dftracer.viewer.openLogFile",
