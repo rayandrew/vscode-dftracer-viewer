@@ -2,7 +2,7 @@
   "name": "dftracer-viewer",
   "displayName": "DFTracer Viewer",
   "description": "Explore DFTracer traces (.pfw/.pfw.gz) in an interactive, query-on-demand timeline: pan/zoom with density LOD, per-rank/host lanes, flamegraph, gap analysis, and I/O bandwidth.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "rayandrew",
   "author": {
     "name": "Ray Andrew"

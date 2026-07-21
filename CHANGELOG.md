@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.0.3](https://github.com/rayandrew/vscode-dftracer-viewer/compare/v0.0.2...v0.0.3) (2026-07-21)
+
+### Features
+
+- better timeout to notify slow server initialization ([687e7aa](https://github.com/rayandrew/vscode-dftracer-viewer/commit/687e7aabf4d9a0427a2b10fd6bbf907e5d725374))
+
+### Bug Fixes
+
+- e2e CI ([aae6264](https://github.com/rayandrew/vscode-dftracer-viewer/commit/aae6264cbbe3d58b41bde0d649fd3a3e16d1797b))
+
 ## [0.0.2](https://github.com/rayandrew/vscode-dftracer-viewer/compare/v0.0.1...v0.0.2) (2026-07-20)
 
 ### Features
