@@ -48,6 +48,17 @@ interface WaitOpts {
   onProgress?: (message: string) => void;
 }
 
+// Per-request cap, not the poll interval. A server busy indexing a large trace
+// answers slowly, and cutting it off too early means we never see it come up.
+// The env override exists so tests can drive many probe rounds quickly.
+const PROBE_TIMEOUT_MS = 5000;
+const probeTimeoutMs = () => Number(process.env.DFT_PROBE_TIMEOUT_MS) || PROBE_TIMEOUT_MS;
+
+// Probes back off from 250ms so a long index isn't polled hundreds of times,
+// capped low enough that we still notice readiness promptly.
+const PROBE_DELAY_MIN_MS = 250;
+const PROBE_DELAY_MAX_MS = 2000;
+
 function waitReady(
   port: number,
   proc: child_process.ChildProcess,
@@ -58,6 +69,10 @@ function waitReady(
   const noTimeout = idleMs <= 0;
   return new Promise((resolve, reject) => {
     let done = false;
+    // One probe in flight at a time: a probe can fail twice (timeout then
+    // error), and must still schedule only one retry.
+    let retryScheduled = false;
+    let delayMs = PROBE_DELAY_MIN_MS;
     const finish = (fn: () => void) => {
       if (done) return;
       done = true;
@@ -89,7 +104,8 @@ function waitReady(
       onProgress(line ? `${line} (${secs}s)` : `Preparing trace… (${secs}s)`);
     };
     const retry = () => {
-      if (done) return;
+      if (done || retryScheduled) return;
+      retryScheduled = true;
       report();
       const idleFor = Date.now() - stderr.lastActivity;
       if (!noTimeout && idleFor > idleMs) {
@@ -106,17 +122,21 @@ function waitReady(
           ),
         );
       } else {
-        setTimeout(tryOnce, 250);
+        setTimeout(tryOnce, delayMs);
+        delayMs = Math.min(delayMs * 2, PROBE_DELAY_MAX_MS);
       }
     };
     const tryOnce = () => {
       if (done) return;
+      retryScheduled = false;
       const req = http.get(
-        { host: "127.0.0.1", port, path: "/api/v1/info", timeout: 1000 },
+        { host: "127.0.0.1", port, path: "/api/v1/info", timeout: probeTimeoutMs() },
         (res) => {
           res.resume();
-          if (res.statusCode === 200) finish(resolve);
-          else retry();
+          res.on("end", () => {
+            if (res.statusCode === 200) finish(resolve);
+            else retry();
+          });
         },
       );
       req.on("error", retry);

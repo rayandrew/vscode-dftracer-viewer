@@ -2,7 +2,8 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["out/**", "node_modules/**"] },
+  // stub-server.mjs is spawned as a standalone script, not part of the build.
+  { ignores: ["out/**", "node_modules/**", "src/test/stub-server.mjs"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
