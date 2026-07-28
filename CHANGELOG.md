@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.0.5](https://github.com/rayandrew/vscode-dftracer-viewer/compare/v0.0.4...v0.0.5) (2026-07-28)
+
+### Bug Fixes
+
+- treat any HTTP reply as the server being ready ([dab2ec0](https://github.com/rayandrew/vscode-dftracer-viewer/commit/dab2ec0ba71febdbcd1c6d90d993147c13184a03))
+
 ## [0.0.4](https://github.com/rayandrew/vscode-dftracer-viewer/compare/v0.0.3...v0.0.4) (2026-07-28)
 
 ### Bug Fixes
