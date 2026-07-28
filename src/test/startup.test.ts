@@ -7,11 +7,10 @@ import { ServerManager } from "../server";
 
 // Runs against stub-server.mjs rather than a real dftracer_server, so it
 // exercises the startup handshake in CI. The stub stays unresponsive for
-// STUB_BUSY_MS the way a server building an index for a large trace does.
+// STUB_BUSY_MS the way a server building its activity summary does, and 404s
+// everything but / the way newer server builds do.
 const STUB = path.join(__dirname, "..", "..", "src", "test", "stub-server.mjs");
 const STUB_BUSY_MS = 8000;
-// Short probes so the stub's busy window covers many timeout rounds.
-const PROBE_MS = 500;
 
 function getJson(port: number, urlPath: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -39,28 +38,28 @@ suite("server startup", function () {
     traceDir = fs.mkdtempSync(path.join(os.tmpdir(), "dft-startup-"));
   });
 
-  test("becomes ready once a slow-starting server answers, without flooding it", async () => {
+  test("becomes ready on a server with no /api/v1/info, once it answers", async () => {
     process.env.DFT_STUB_BUSY_MS = String(STUB_BUSY_MS);
-    process.env.DFT_PROBE_TIMEOUT_MS = String(PROBE_MS);
     const mgr = new ServerManager();
     try {
+      const started = Date.now();
       const port = await mgr.acquire(traceDir, STUB);
       assert.ok(port > 0, "expected a listen port");
-
-      // Probes back off from 250ms to 2s, and each unanswered probe must
-      // schedule exactly one retry. Before the fix a probe that timed out fired
-      // both its 'timeout' and 'error' handler, doubling the number of polling
-      // chains every round until the server was buried in requests.
-      const stats = (await getJson(port, "/__stats")) as { requests: number };
-      const ceiling = Math.ceil(STUB_BUSY_MS / 2000) + 6;
       assert.ok(
-        stats.requests <= ceiling,
-        `probes should stay bounded, stub saw ${stats.requests} (ceiling ${ceiling})`,
+        Date.now() - started >= STUB_BUSY_MS,
+        "should not report ready before the server actually answers",
+      );
+
+      // Probes must not be abandoned and retried while the server is working:
+      // that is a request storm aimed at a process that is already busy.
+      const stats = (await getJson(port, "/__stats")) as { requests: number };
+      assert.ok(
+        stats.requests <= 3,
+        `should wait on the pending probe, stub saw ${stats.requests} requests`,
       );
     } finally {
       mgr.disposeAll();
       delete process.env.DFT_STUB_BUSY_MS;
-      delete process.env.DFT_PROBE_TIMEOUT_MS;
     }
   });
 });

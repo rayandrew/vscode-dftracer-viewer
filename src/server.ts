@@ -48,16 +48,14 @@ interface WaitOpts {
   onProgress?: (message: string) => void;
 }
 
-// Per-request cap, not the poll interval. A server busy indexing a large trace
-// answers slowly, and cutting it off too early means we never see it come up.
-// The env override exists so tests can drive many probe rounds quickly.
-const PROBE_TIMEOUT_MS = 5000;
-const probeTimeoutMs = () => Number(process.env.DFT_PROBE_TIMEOUT_MS) || PROBE_TIMEOUT_MS;
-
 // Probes back off from 250ms so a long index isn't polled hundreds of times,
 // capped low enough that we still notice readiness promptly.
 const PROBE_DELAY_MIN_MS = 250;
 const PROBE_DELAY_MAX_MS = 2000;
+
+// How often progress is refreshed and the idle watchdog is checked. Independent
+// of the probes, which can sit waiting on the server for minutes.
+const TICK_MS = 250;
 
 function waitReady(
   port: number,
@@ -69,13 +67,15 @@ function waitReady(
   const noTimeout = idleMs <= 0;
   return new Promise((resolve, reject) => {
     let done = false;
-    // One probe in flight at a time: a probe can fail twice (timeout then
-    // error), and must still schedule only one retry.
+    // One probe in flight at a time: a probe can fail twice (a timeout is
+    // followed by an ECONNRESET), and must still schedule only one retry.
     let retryScheduled = false;
     let delayMs = PROBE_DELAY_MIN_MS;
+    const ticker = setInterval(() => tick(), TICK_MS);
     const finish = (fn: () => void) => {
       if (done) return;
       done = true;
+      clearInterval(ticker);
       fn();
     };
     proc.once("exit", (code) =>
@@ -103,45 +103,49 @@ function waitReady(
       const line = lastLogLine(stderr.text);
       onProgress(line ? `${line} (${secs}s)` : `Preparing trace… (${secs}s)`);
     };
+    // The watchdog runs on its own clock rather than off the back of a probe,
+    // because a probe can legitimately sit unanswered for minutes.
+    const tick = () => {
+      if (done) return;
+      report();
+      const idleFor = Date.now() - stderr.lastActivity;
+      if (noTimeout || idleFor <= idleMs) return;
+      const idleSecs = Math.round(idleFor / 1000);
+      const tail = stderr.text.trim().slice(-600);
+      finish(() =>
+        reject(
+          new Error(
+            `dftracer_server produced no output for ${idleSecs}s and never became ready — ` +
+              `it looks stuck. Adjust the idle limit with ` +
+              `'dftracer.viewer.serverStartTimeoutSec' (0 waits indefinitely).` +
+              `${tail ? `\n\nLast server output:\n${tail}` : ""}`,
+          ),
+        ),
+      );
+    };
     const retry = () => {
       if (done || retryScheduled) return;
       retryScheduled = true;
-      report();
-      const idleFor = Date.now() - stderr.lastActivity;
-      if (!noTimeout && idleFor > idleMs) {
-        const idleSecs = Math.round(idleFor / 1000);
-        const tail = stderr.text.trim().slice(-600);
-        finish(() =>
-          reject(
-            new Error(
-              `dftracer_server produced no output for ${idleSecs}s and never became ready — ` +
-                `it looks stuck. Adjust the idle limit with ` +
-                `'dftracer.viewer.serverStartTimeoutSec' (0 waits indefinitely).` +
-                `${tail ? `\n\nLast server output:\n${tail}` : ""}`,
-            ),
-          ),
-        );
-      } else {
-        setTimeout(tryOnce, delayMs);
-        delayMs = Math.min(delayMs * 2, PROBE_DELAY_MAX_MS);
-      }
+      setTimeout(tryOnce, delayMs);
+      delayMs = Math.min(delayMs * 2, PROBE_DELAY_MAX_MS);
     };
+    // Any HTTP reply means the server is up and serving. Waiting for a specific
+    // status on a specific API path ties startup to one server version: the
+    // /api/v1/info this used to poll 404s on newer builds, so the viewer waited
+    // forever on a server that was already answering. Whether the page itself
+    // is good is fetchServerHtml's problem, and it reports that as an error
+    // rather than hanging. Also no per-request timeout, so a server busy
+    // building its activity summary is given as long as it needs.
     const tryOnce = () => {
       if (done) return;
       retryScheduled = false;
-      const req = http.get(
-        { host: "127.0.0.1", port, path: "/api/v1/info", timeout: probeTimeoutMs() },
-        (res) => {
-          res.resume();
-          res.on("end", () => {
-            if (res.statusCode === 200) finish(resolve);
-            else retry();
-          });
-        },
-      );
-      req.on("error", retry);
-      req.on("timeout", () => {
-        req.destroy();
+      const req = http.get({ host: "127.0.0.1", port, path: "/" }, (res) => {
+        res.resume();
+        log.debug(`probe / -> HTTP ${res.statusCode}`);
+        finish(resolve);
+      });
+      req.on("error", (e) => {
+        log.debug(`probe / -> ${(e as NodeJS.ErrnoException).code ?? e.message}`);
         retry();
       });
     };

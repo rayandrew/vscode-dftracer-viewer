@@ -12,13 +12,10 @@ const SERVER = process.env.DFTRACER_SERVER_PATH;
 
 function ping(port: number, timeoutMs = 800): Promise<boolean> {
   return new Promise((resolve) => {
-    const req = http.get(
-      { host: "127.0.0.1", port, path: "/api/v1/info", timeout: timeoutMs },
-      (res) => {
-        res.resume();
-        resolve(res.statusCode === 200);
-      },
-    );
+    const req = http.get({ host: "127.0.0.1", port, path: "/", timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
     req.on("error", () => resolve(false));
     req.on("timeout", () => (req.destroy(), resolve(false)));
   });
@@ -71,7 +68,7 @@ suite("ServerManager", function () {
     try {
       const port = await mgr.acquire(traceDir, SERVER!);
       assert.ok(port > 0, "expected a listen port");
-      assert.ok(await ping(port), "server should answer /api/v1/info");
+      assert.ok(await ping(port), "server should answer GET /");
 
       const html = await fetchServerHtml(port);
       assert.match(html, /<html|<!doctype/i, "GET / should return an HTML page");
