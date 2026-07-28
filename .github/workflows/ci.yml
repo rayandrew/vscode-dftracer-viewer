@@ -19,8 +19,17 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run compile
-      # Headless VS Code needs a virtual display. The server e2e tests skip
-      # without DFTRACER_SERVER_PATH, so this runs the activation suite.
+      # Run the server tests against a real dftracer_server, not just the stub.
+      - name: Fetch the newest dftracer_server prebuild
+        run: |
+          set -euo pipefail
+          url=$(curl -sSL "https://api.github.com/repos/rayandrew/dftracer-utils-prebuilds/releases?per_page=20" \
+            | jq -r '[.[].assets[] | select(.name | endswith("-linux-x64.tar.gz"))][0].browser_download_url')
+          curl -sSL -o "$RUNNER_TEMP/dft.tar.gz" "$url"
+          mkdir -p "$RUNNER_TEMP/dft"
+          tar xzf "$RUNNER_TEMP/dft.tar.gz" -C "$RUNNER_TEMP/dft" --strip-components=1
+          echo "DFTRACER_SERVER_PATH=$RUNNER_TEMP/dft/bin/dftracer_server" >> "$GITHUB_ENV"
+      # Headless VS Code needs a virtual display.
       - run: sudo apt-get update && sudo apt-get install -y xvfb
       - run: xvfb-run -a npm test
       - run: npx @vscode/vsce package -o dftracer-viewer.vsix
