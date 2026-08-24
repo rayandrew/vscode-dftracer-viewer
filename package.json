@@ -157,6 +157,15 @@
           "scope": "machine",
           "markdownDescription": "Give up on a starting `dftracer_server` after this many seconds of **silence** (no new log output). A trace that keeps logging indexing progress is never killed, however long it takes; this only trips when the server appears stuck. You can always stop it yourself with the **Stop server** button. Set to `0` to wait indefinitely. Per-machine."
         },
+        "dftracer.viewer.serverAutoShutdown": {
+          "type": [
+            "number",
+            "string"
+          ],
+          "default": "4h",
+          "scope": "machine",
+          "markdownDescription": "Auto-shutdown a `dftracer_server` after this much **uptime**, passed as `--timeout`. Guards against server processes lingering and hogging cluster resources when VS Code closes abruptly (e.g. a dropped Remote-SSH connection) without killing the server. Accepts a number of seconds (`14400`) or a string with units (`30s`, `10m`, `4h`, `1.5h`). This is a hard cap on total uptime, not an idle timer: the server exits even while a viewer is still open, so set it comfortably longer than a working session (default: `4h`). Set to `0` to disable. Requires a server build that supports `--timeout`; set to `0` for older servers. Per-machine."
+        },
         "dftracer.viewer.indexDir": {
           "type": "string",
           "default": "",

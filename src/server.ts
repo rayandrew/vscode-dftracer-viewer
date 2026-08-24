@@ -153,6 +153,34 @@ function waitReady(
   });
 }
 
+// Cached per binary path: `<binary> --help` is spawned once and its output
+// scanned for the flag, so an unsupported flag is never passed to a server that
+// would reject it. Resolves false if --help cannot be run or does not respond.
+const flagSupport = new Map<string, Promise<boolean>>();
+
+function serverSupportsFlag(binary: string, flag: string): Promise<boolean> {
+  let probe = flagSupport.get(binary);
+  if (probe) return probe;
+  probe = new Promise<boolean>((resolve) => {
+    let out = "";
+    let settled = false;
+    const done = (v: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    const proc = child_process.spawn(binary, ["--help"], { stdio: ["ignore", "pipe", "pipe"] });
+    const timer = setTimeout(() => (proc.kill(), done(out.includes(flag))), 5000);
+    const grab = (d: Buffer) => (out += d.toString());
+    proc.stdout?.on("data", grab);
+    proc.stderr?.on("data", grab);
+    proc.once("error", () => (clearTimeout(timer), done(false)));
+    proc.once("close", () => (clearTimeout(timer), done(out.includes(flag))));
+  });
+  flagSupport.set(binary, probe);
+  return probe;
+}
+
 export class ServerManager {
   private servers = new Map<string, ServerInstance>();
 
@@ -193,6 +221,12 @@ export class ServerManager {
 
       const args = ["-d", traceDir, "-p", String(port), "--index-dir", indexDir];
       if (logLevel && logLevel !== "default") args.push("--log-level", logLevel);
+      const timeout = String(cfg.get<number | string>("serverAutoShutdown", "4h")).trim();
+      // Uptime cap so a server orphaned by an abrupt VS Code exit doesn't linger
+      // and hog cluster resources. Skipped for older servers without the flag,
+      // which would reject it and fail to start.
+      if (timeout && timeout !== "0" && (await serverSupportsFlag(binary, "--timeout")))
+        args.push("--timeout", timeout);
       args.push(...extraArgs);
 
       log.info(`Starting dftracer_server on :${port} (${binary})`);
