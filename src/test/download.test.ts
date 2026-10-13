@@ -4,7 +4,13 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import { hasCachedServer, listReleases, resolveServerBinary } from "../download";
+import {
+  clearServerCache,
+  hasCachedServer,
+  listReleases,
+  resolveServerBinary,
+  sweepRetiredServers,
+} from "../download";
 
 // These hit the GitHub releases of llnl-asr/dftracer-utils, so they need network.
 const SUPPORTED = ["linux-x64", "linux-arm64", "darwin-arm64"].includes(
@@ -79,6 +85,41 @@ const config = () => vscode.workspace.getConfiguration("dftracer.viewer");
     assert.ok(fs.existsSync(rolling));
     assert.ok(!fs.existsSync(pinned), "previous release was not pruned");
   });
+
+  // Chmod stands in for a server holding a file open: both make the delete fail.
+  (process.getuid?.() === 0 ? test.skip : test)(
+    "a delete that fails does not block the next download",
+    async () => {
+      await selectRelease(PINNED_TAG);
+      const first = await resolveServerBinary(context, () => {});
+      const installDir = path.dirname(path.dirname(first));
+      fs.chmodSync(installDir, 0o555);
+      const retired = () => fs.readdirSync(storage).filter((n) => n.startsWith("servers-retired-"));
+      try {
+        clearServerCache(context);
+        assert.strictEqual(hasCachedServer(context), false);
+        assert.strictEqual(retired().length, 1, "locked cache should be kept aside");
+
+        const second = await resolveServerBinary(context, () => {});
+        assert.ok(fs.existsSync(second));
+        assert.ok(hasCachedServer(context));
+      } finally {
+        for (const name of retired()) {
+          fs.chmodSync(
+            path.join(
+              storage,
+              name,
+              path.basename(path.dirname(installDir)),
+              path.basename(installDir),
+            ),
+            0o755,
+          );
+        }
+      }
+      sweepRetiredServers(context);
+      assert.deepStrictEqual(retired(), []);
+    },
+  );
 
   test("an unknown release is an error", async () => {
     await selectRelease("v0.0.0-does-not-exist");

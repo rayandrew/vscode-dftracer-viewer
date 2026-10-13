@@ -199,6 +199,18 @@ export function hasCachedServer(context: vscode.ExtensionContext): boolean {
   return false;
 }
 
+const RETIRED_PREFIX = "servers-retired-";
+
+// A delete can fail while a server still runs from the folder (ETXTBSY, or
+// ENOTEMPTY with a .nfs file on NFS). Leave it for the next sweep.
+function removeQuietly(target: string): void {
+  try {
+    fs.rmSync(target, { recursive: true, force: true });
+  } catch (err) {
+    log.warn(`Could not remove ${target} yet: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 // Keep only `keepDir` of `keepTag`. A server running from a removed file keeps
 // working (the OS holds the inode until the process exits).
 function pruneOtherReleases(
@@ -207,31 +219,49 @@ function pruneOtherReleases(
   keepDir: string,
 ): void {
   const root = path.join(context.globalStorageUri.fsPath, "servers");
+  let tags: string[];
   try {
-    for (const tag of fs.readdirSync(root)) {
-      const tagDir = path.join(root, tag);
-      if (tag !== keepTag) {
-        fs.rmSync(tagDir, { recursive: true, force: true });
-        continue;
-      }
-      for (const dir of fs.readdirSync(tagDir)) {
-        if (dir !== keepDir) fs.rmSync(path.join(tagDir, dir), { recursive: true, force: true });
-      }
-    }
+    tags = fs.readdirSync(root);
   } catch {
-    /* nothing cached */
+    return;
+  }
+  for (const tag of tags) {
+    const tagDir = path.join(root, tag);
+    if (tag !== keepTag) {
+      removeQuietly(tagDir);
+      continue;
+    }
+    for (const dir of fs.readdirSync(tagDir)) {
+      if (dir !== keepDir) removeQuietly(path.join(tagDir, dir));
+    }
   }
 }
 
+// Move the cache aside instead of deleting it, so the next download never
+// writes into a folder that a running server still uses.
 export function clearServerCache(context: vscode.ExtensionContext): void {
-  fs.rmSync(path.join(context.globalStorageUri.fsPath, "servers"), {
-    recursive: true,
-    force: true,
-  });
+  const storage = context.globalStorageUri.fsPath;
+  const servers = path.join(storage, "servers");
+  if (fs.existsSync(servers)) {
+    fs.renameSync(servers, path.join(storage, `${RETIRED_PREFIX}${Date.now()}`));
+  }
+  sweepRetiredServers(context);
 }
 
-// Honours serverPath, else downloads + caches the prebuilt for this platform,
-// verifying its SHA-256.
+// Delete retired caches whose servers have exited. Safe to call at any time.
+export function sweepRetiredServers(context: vscode.ExtensionContext): void {
+  const storage = context.globalStorageUri.fsPath;
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(storage);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    if (name.startsWith(RETIRED_PREFIX)) removeQuietly(path.join(storage, name));
+  }
+}
+
 export async function resolveServerBinary(
   context: vscode.ExtensionContext,
   report: (message: string) => void,

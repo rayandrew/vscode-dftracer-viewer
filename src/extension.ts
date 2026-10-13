@@ -2,7 +2,13 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import { ServerManager, fetchServerHtml } from "./server";
-import { clearServerCache, hasCachedServer, listReleases, resolveServerBinary } from "./download";
+import {
+  clearServerCache,
+  hasCachedServer,
+  listReleases,
+  resolveServerBinary,
+  sweepRetiredServers,
+} from "./download";
 import { log, initLogFile, logFileUri } from "./log";
 
 const SERVER_LOG_LEVELS = ["default", "trace", "debug", "info", "warn", "error", "off"];
@@ -12,6 +18,7 @@ let activeViewer: Viewer | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   initLogFile(context);
+  sweepRetiredServers(context);
   context.subscriptions.push(
     log,
     vscode.commands.registerCommand("dftracer.viewer.viewTrace", (uri?: vscode.Uri) =>
