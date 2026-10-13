@@ -44,6 +44,8 @@ suite("Activation", () => {
     assert.strictEqual(cfg.get("serverRelease"), "latest");
     assert.strictEqual(cfg.get("serverLogLevel"), "default");
     assert.strictEqual(cfg.get("serverStartTimeoutSec"), 120);
+    assert.strictEqual(cfg.get("serverIdleTimeoutMin"), 60);
+    assert.strictEqual(cfg.get("serverAutoShutdown"), "12h");
     assert.strictEqual(cfg.get("indexDir"), "");
     assert.deepStrictEqual(cfg.get("extraArgs"), []);
   });

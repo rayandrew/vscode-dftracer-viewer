@@ -157,14 +157,21 @@
           "scope": "machine",
           "markdownDescription": "Give up on a starting `dftracer_server` after this many seconds of **silence** (no new log output). A trace that keeps logging indexing progress is never killed, however long it takes; this only trips when the server appears stuck. You can always stop it yourself with the **Stop server** button. Set to `0` to wait indefinitely. Per-machine."
         },
+        "dftracer.viewer.serverIdleTimeoutMin": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "scope": "machine",
+          "markdownDescription": "Stop a `dftracer_server` after its viewer has sat idle for this many **minutes**, and show a **Restart server** button in the viewer. A viewer is idle while its tab is hidden or VS Code is unfocused. The server is shared by every viewer of a trace, so it stops only when all of them are idle. Set to `0` to disable (default: `60`). Per-machine."
+        },
         "dftracer.viewer.serverAutoShutdown": {
           "type": [
             "number",
             "string"
           ],
-          "default": "4h",
+          "default": "12h",
           "scope": "machine",
-          "markdownDescription": "Auto-shutdown a `dftracer_server` after this much **uptime**, passed as `--timeout`. Guards against server processes lingering and hogging cluster resources when VS Code closes abruptly (e.g. a dropped Remote-SSH connection) without killing the server. Accepts a number of seconds (`14400`) or a string with units (`30s`, `10m`, `4h`, `1.5h`). This is a hard cap on total uptime, not an idle timer: the server exits even while a viewer is still open, so set it comfortably longer than a working session (default: `4h`). Set to `0` to disable. Requires a server build that supports `--timeout`; set to `0` for older servers. Per-machine."
+          "markdownDescription": "Safety net for a server that outlives VS Code, for example after a dropped Remote-SSH connection. The server exits after this much **uptime**, passed as `--timeout`, even while a viewer is open, so set it comfortably longer than a working session. Idle servers are already stopped by `#dftracer.viewer.serverIdleTimeoutMin#`. Accepts a number of seconds (`43200`) or a string with units (`30s`, `10m`, `12h`, `1.5h`). Set to `0` to disable (default: `12h`). Requires a server build that supports `--timeout`; set to `0` for older servers. Per-machine."
         },
         "dftracer.viewer.indexDir": {
           "type": "string",

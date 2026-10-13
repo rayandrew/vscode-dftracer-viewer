@@ -46,12 +46,14 @@ the selected release and reloads the open viewer.
 
 ## Settings
 
-| Setting                         | Default  | Purpose                                                                                                |
-| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `dftracer.viewer.serverPath`    | (empty)  | Path to a `dftracer_server` binary; when set, skips the download.                                      |
-| `dftracer.viewer.serverRelease` | `latest` | Which dftracer-utils release to download (`latest` or a tag like `v0.0.14`).                           |
-| `dftracer.viewer.indexDir`      | (empty)  | Trace index directory (`--index-dir`). Empty builds it in a temp dir removed on close; set to persist. |
-| `dftracer.viewer.extraArgs`     | `[]`     | Extra CLI args passed to `dftracer_server`.                                                            |
+| Setting                                | Default  | Purpose                                                                                                      |
+| -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `dftracer.viewer.serverPath`           | (empty)  | Path to a `dftracer_server` binary; when set, skips the download.                                            |
+| `dftracer.viewer.serverRelease`        | `latest` | Which dftracer-utils release to download (`latest` or a tag like `v0.0.14`).                                 |
+| `dftracer.viewer.serverIdleTimeoutMin` | `60`     | Stop the server after the viewer sits idle this many minutes (hidden tab or unfocused window). `0` disables. |
+| `dftracer.viewer.serverAutoShutdown`   | `12h`    | Hard uptime cap passed as `--timeout`; a safety net if VS Code dies. `0` disables.                           |
+| `dftracer.viewer.indexDir`             | (empty)  | Trace index directory (`--index-dir`). Empty builds it in a temp dir removed on close; set to persist.       |
+| `dftracer.viewer.extraArgs`            | `[]`     | Extra CLI args passed to `dftracer_server`.                                                                  |
 
 ## How it works
 

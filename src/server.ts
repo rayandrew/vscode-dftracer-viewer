@@ -221,7 +221,7 @@ export class ServerManager {
 
       const args = ["-d", traceDir, "-p", String(port), "--index-dir", indexDir];
       if (logLevel && logLevel !== "default") args.push("--log-level", logLevel);
-      const timeout = String(cfg.get<number | string>("serverAutoShutdown", "4h")).trim();
+      const timeout = String(cfg.get<number | string>("serverAutoShutdown", "12h")).trim();
       // Uptime cap so a server orphaned by an abrupt VS Code exit doesn't linger
       // and hog cluster resources. Skipped for older servers without the flag,
       // which would reject it and fail to start.

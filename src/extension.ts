@@ -9,12 +9,28 @@ import {
   resolveServerBinary,
   sweepRetiredServers,
 } from "./download";
+import { IdleTimer } from "./idle";
 import { log, initLogFile, logFileUri } from "./log";
 
 const SERVER_LOG_LEVELS = ["default", "trace", "debug", "info", "warn", "error", "off"];
 
 const manager = new ServerManager();
 let activeViewer: Viewer | undefined;
+let windowFocused = () => vscode.window.state.focused;
+
+// Lets a test decide window focus, which a headless host cannot report.
+export function setWindowFocusForTests(probe?: () => boolean): void {
+  windowFocused = probe ?? (() => vscode.window.state.focused);
+  activeViewer?.refreshIdle();
+}
+
+// Lets a test read the active viewer's page and post as its webview would.
+export function activeViewerForTests():
+  { html: () => string; send: (message: { type: string }) => Promise<void> } | undefined {
+  const viewer = activeViewer;
+  if (!viewer) return undefined;
+  return { html: () => viewer.html(), send: (m) => viewer.onMessage(m) };
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   initLogFile(context);
@@ -311,21 +327,34 @@ class Viewer {
   // to cancel that startup.
   private loadingDir?: string;
   private cancelled = false;
+  private idle = new IdleTimer(
+    () =>
+      vscode.workspace.getConfiguration("dftracer.viewer").get<number>("serverIdleTimeoutMin", 60) *
+      60_000,
+    () => this.stopIdle(),
+  );
 
   constructor(
     private context: vscode.ExtensionContext,
     private panel: vscode.WebviewPanel,
   ) {
     activeViewer = this;
+    const windowState = vscode.window.onDidChangeWindowState(() => this.refreshIdle());
     panel.onDidDispose(() => {
       this.disposed = true;
       if (activeViewer === this) activeViewer = undefined;
+      windowState.dispose();
       this.release();
     });
     panel.onDidChangeViewState((e) => {
       if (e.webviewPanel.active) activeViewer = this;
+      this.refreshIdle();
     });
     panel.webview.onDidReceiveMessage((m) => this.onMessage(m));
+  }
+
+  html(): string {
+    return this.panel.webview.html;
   }
 
   hasTrace(): boolean {
@@ -374,12 +403,14 @@ class Viewer {
           cancellable: false,
         },
         async (progress) => {
+          // A closed panel throws on postMessage, and a killed server can still
+          // flush output after that.
           const report = (message: string) => {
             progress.report({ message });
-            void this.panel.webview.postMessage({ type: "status", message });
+            if (!this.disposed) void this.panel.webview.postMessage({ type: "status", message });
           };
           const onLog = (line: string) => {
-            void this.panel.webview.postMessage({ type: "log", line });
+            if (!this.disposed) void this.panel.webview.postMessage({ type: "log", line });
           };
           const binary = await resolveServerBinary(this.context, report);
           if (this.disposed) throw new Error("cancelled");
@@ -401,6 +432,7 @@ class Viewer {
         return;
       }
       this.panel.webview.html = bakeHtml(html, apiBase, file ?? "");
+      this.refreshIdle();
     } catch (err) {
       if (this.disposed) return;
       // User cancelled the startup — show a calm idle screen, not an error.
@@ -429,7 +461,7 @@ class Viewer {
       .trim();
   }
 
-  private async onMessage(m: { type?: string; mode?: string; path?: string }): Promise<void> {
+  async onMessage(m: { type?: string; mode?: string; path?: string }): Promise<void> {
     if (m.type === "pickTrace") {
       const picked = await vscode.window.showOpenDialog({
         canSelectFiles: m.mode === "file",
@@ -465,7 +497,21 @@ class Viewer {
     }
   }
 
+  // Idle means the tab is hidden or VS Code is unfocused. The server is shared
+  // by every viewer of the trace, so it stops only when all of them are idle.
+  refreshIdle(): void {
+    if (!this.traceDir) return;
+    this.idle.setActive(this.panel.visible && windowFocused());
+  }
+
+  private stopIdle(): void {
+    log.info(`Stopping idle server for ${this.lastFile ?? this.lastDir}`);
+    this.release();
+    this.panel.webview.html = idleScreenHtml(this.lastFile);
+  }
+
   private release(): void {
+    this.idle.dispose();
     if (this.traceDir) {
       manager.release(this.traceDir);
       this.traceDir = undefined;
@@ -678,6 +724,19 @@ function loadScreenHtml(message: string, file?: string, isError = false, serverP
     <div class="row">
       <input id="server-path" class="input" type="text" placeholder="/path/to/dftracer_server" value="${escHtml(serverPath)}" />
       <button class="btn ghost" data-act="save-path">Use</button>
+    </div>
+  `);
+}
+
+function idleScreenHtml(file?: string): string {
+  return page(`
+    ${strip()}
+    ${brand()}
+    <p class="msg">The server was stopped after sitting idle. Restart it to keep exploring this trace.</p>
+    ${file ? `<div class="file">${escHtml(file)}</div>` : ""}
+    <div class="row wrap" style="margin-top:20px;">
+      <button class="btn primary" data-act="retry">Restart server</button>
+      <button class="btn ghost" data-act="settings">Settings</button>
     </div>
   `);
 }
