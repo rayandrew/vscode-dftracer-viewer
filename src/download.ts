@@ -70,39 +70,55 @@ export async function listReleases(): Promise<ReleaseInfo[]> {
     }));
 }
 
+// Unauthenticated API calls share a 60/hour limit per IP, which shared login
+// nodes and CI runners exhaust. The token goes to api.github.com only.
+function apiHeaders(url: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "User-Agent": USER_AGENT,
+    Accept: "application/vnd.github+json",
+  };
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (token && new URL(url).hostname === "api.github.com") {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 function httpGetJson(url: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     https
-      .get(
-        url,
-        { headers: { "User-Agent": USER_AGENT, Accept: "application/vnd.github+json" } },
-        (res) => {
-          if (
-            res.statusCode &&
-            res.statusCode >= 300 &&
-            res.statusCode < 400 &&
-            res.headers.location
-          ) {
-            res.resume();
-            httpGetJson(res.headers.location).then(resolve, reject);
-            return;
+      .get(url, { headers: apiHeaders(url) }, (res) => {
+        if (
+          res.statusCode &&
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location
+        ) {
+          res.resume();
+          httpGetJson(res.headers.location).then(resolve, reject);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          const limited = res.headers["x-ratelimit-remaining"] === "0";
+          reject(
+            new Error(
+              `GitHub API ${res.statusCode} for ${url}` +
+                (limited ? ". Rate limit reached; set GITHUB_TOKEN to raise it." : ""),
+            ),
+          );
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          } catch (e) {
+            reject(e);
           }
-          if (res.statusCode !== 200) {
-            res.resume();
-            reject(new Error(`GitHub API ${res.statusCode} for ${url}`));
-            return;
-          }
-          const chunks: Buffer[] = [];
-          res.on("data", (c) => chunks.push(c));
-          res.on("end", () => {
-            try {
-              resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-            } catch (e) {
-              reject(e);
-            }
-          });
-        },
-      )
+        });
+      })
       .on("error", reject);
   });
 }
