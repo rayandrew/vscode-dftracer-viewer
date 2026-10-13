@@ -20,14 +20,15 @@ jobs:
       - run: npm run typecheck
       - run: npm run compile
       # Run the server tests against a real dftracer_server, not just the stub.
-      - name: Fetch the newest dftracer_server prebuild
+      - name: Fetch the develop dftracer_server prebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          url=$(curl -sSL "https://api.github.com/repos/rayandrew/dftracer-utils-prebuilds/releases?per_page=20" \
-            | jq -r '[.[].assets[] | select(.name | endswith("-linux-x64.tar.gz"))][0].browser_download_url')
-          curl -sSL -o "$RUNNER_TEMP/dft.tar.gz" "$url"
           mkdir -p "$RUNNER_TEMP/dft"
-          tar xzf "$RUNNER_TEMP/dft.tar.gz" -C "$RUNNER_TEMP/dft" --strip-components=1
+          gh release download develop-latest --repo llnl-asr/dftracer-utils \
+            --pattern '*-linux-x86_64.tar.gz' --dir "$RUNNER_TEMP"
+          tar xzf "$RUNNER_TEMP"/dftracer-utils-*-linux-x86_64.tar.gz -C "$RUNNER_TEMP/dft"
           echo "DFTRACER_SERVER_PATH=$RUNNER_TEMP/dft/bin/dftracer_server" >> "$GITHUB_ENV"
       # Headless VS Code needs a virtual display.
       - run: sudo apt-get update && sudo apt-get install -y xvfb

@@ -28,8 +28,10 @@ directory, and shows the timeline it serves - no separate install required.
 
 On first use the extension downloads the `dftracer_server` binary for your
 platform from
-[dftracer-utils-prebuilds](https://github.com/rayandrew/dftracer-utils-prebuilds)
-and caches it. Prebuilts are available for macOS and Linux (x64 / arm64).
+[dftracer-utils releases](https://github.com/llnl-asr/dftracer-utils/releases)
+and caches it. Prebuilts are available for Linux (x64 / arm64) and macOS (arm64).
+Set `dftracer.viewer.serverRelease` to `develop-latest` for the newest build of
+the `develop` branch.
 
 ## Choosing the server
 
@@ -47,7 +49,7 @@ the selected release and reloads the open viewer.
 | Setting                         | Default  | Purpose                                                                                                |
 | ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------ |
 | `dftracer.viewer.serverPath`    | (empty)  | Path to a `dftracer_server` binary; when set, skips the download.                                      |
-| `dftracer.viewer.serverRelease` | `latest` | Which prebuilds release to download (`latest` or a tag like `v1.2.3.post5`).                           |
+| `dftracer.viewer.serverRelease` | `latest` | Which dftracer-utils release to download (`latest` or a tag like `v0.0.14`).                           |
 | `dftracer.viewer.indexDir`      | (empty)  | Trace index directory (`--index-dir`). Empty builds it in a temp dir removed on close; set to persist. |
 | `dftracer.viewer.extraArgs`     | `[]`     | Extra CLI args passed to `dftracer_server`.                                                            |
 
@@ -77,7 +79,5 @@ traces under `fixtures/` and opens them).
 
 - [dftracer-utils](https://github.com/LLNL/dftracer-utils) - the `dftracer_server`
   and trace tooling this viewer runs.
-- [dftracer-utils-prebuilds](https://github.com/rayandrew/dftracer-utils-prebuilds) -
-  the per-platform server binaries the extension downloads.
 - [DFTracer](https://dftracer.readthedocs.io/) - the tracer that produces the
   `.pfw` / `.pfw.gz` files.

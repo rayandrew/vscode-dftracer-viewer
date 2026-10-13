@@ -7,22 +7,26 @@ import * as crypto from "crypto";
 import * as child_process from "child_process";
 import { log } from "./log";
 
-const PREBUILDS_REPO = "rayandrew/dftracer-utils-prebuilds";
+const RELEASES_REPO = "llnl-asr/dftracer-utils";
 const USER_AGENT = "vscode-dftracer-viewer";
 
-// node platform/arch -> the prebuilt asset's <os>-<arch> token.
-function platformToken(): { os: string; arch: string } {
-  const osMap: Record<string, string> = { darwin: "darwin", linux: "linux" };
-  const archMap: Record<string, string> = { x64: "x64", arm64: "arm64" };
-  const os = osMap[process.platform];
-  const arch = archMap[process.arch];
-  if (!os || !arch) {
+// node platform-arch -> the <platform> token of the asset
+// dftracer-utils-<version>-<platform>.tar.gz.
+const PLATFORMS: Record<string, string> = {
+  "linux-x64": "linux-x86_64",
+  "linux-arm64": "linux-aarch64",
+  "darwin-arm64": "macos-arm64",
+};
+
+function platformToken(): string {
+  const plat = PLATFORMS[`${process.platform}-${process.arch}`];
+  if (!plat) {
     throw new Error(
       `No prebuilt dftracer_server for ${process.platform}/${process.arch}. ` +
         `Build it yourself and set 'dftracer.viewer.serverPath'.`,
     );
   }
-  return { os, arch };
+  return plat;
 }
 
 interface Release {
@@ -41,17 +45,13 @@ export interface ReleaseInfo {
 // Like platformToken(), but returns null instead of throwing on an
 // unsupported platform, so listing can still succeed.
 function platformSuffixOrNull(): string | null {
-  const osMap: Record<string, string> = { darwin: "darwin", linux: "linux" };
-  const archMap: Record<string, string> = { x64: "x64", arm64: "arm64" };
-  const os = osMap[process.platform];
-  const arch = archMap[process.arch];
-  if (!os || !arch) return null;
-  return `-${os}-${arch}.tar.gz`;
+  const plat = PLATFORMS[`${process.platform}-${process.arch}`];
+  return plat ? `-${plat}.tar.gz` : null;
 }
 
-// List releases from the prebuilds repo, newest first.
+// List releases from the dftracer-utils repo, newest first.
 export async function listReleases(): Promise<ReleaseInfo[]> {
-  const url = `https://api.github.com/repos/${PREBUILDS_REPO}/releases?per_page=100`;
+  const url = `https://api.github.com/repos/${RELEASES_REPO}/releases?per_page=100`;
   const json = (await httpGetJson(url)) as {
     tag_name?: string;
     prerelease?: boolean;
@@ -154,9 +154,9 @@ function sha256(file: string): Promise<string> {
 }
 
 function extractTarGz(tarball: string, dest: string): Promise<void> {
-  // Strip the bundle's top-level dir so bin/ and lib/ land directly in dest.
+  // The bundle holds bin/ and lib/ at its top level.
   return new Promise((resolve, reject) => {
-    child_process.execFile("tar", ["-xzf", tarball, "-C", dest, "--strip-components=1"], (err) => {
+    child_process.execFile("tar", ["-xzf", tarball, "-C", dest], (err) => {
       if (err) reject(err);
       else resolve();
     });
@@ -169,13 +169,14 @@ async function resolveRelease(): Promise<Release> {
     .get<string>("serverRelease", "latest");
   const url =
     !which || which === "latest"
-      ? `https://api.github.com/repos/${PREBUILDS_REPO}/releases/latest`
-      : `https://api.github.com/repos/${PREBUILDS_REPO}/releases/tags/${encodeURIComponent(which)}`;
+      ? `https://api.github.com/repos/${RELEASES_REPO}/releases/latest`
+      : `https://api.github.com/repos/${RELEASES_REPO}/releases/tags/${encodeURIComponent(which)}`;
   const json = (await httpGetJson(url)) as {
     tag_name?: string;
     assets?: { name: string; browser_download_url: string }[];
   };
-  if (!json.tag_name || !json.assets) throw new Error(`No prebuilds release found (${which}).`);
+  if (!json.tag_name || !json.assets)
+    throw new Error(`No dftracer-utils release found (${which}).`);
   return {
     tag: json.tag_name,
     assets: json.assets.map((a) => ({ name: a.name, url: a.browser_download_url })),
@@ -198,13 +199,24 @@ export function hasCachedServer(context: vscode.ExtensionContext): boolean {
   return false;
 }
 
-// Keep only `keepTag`. A server running from a removed file keeps working
-// (the OS holds the inode until the process exits).
-function pruneOtherReleases(context: vscode.ExtensionContext, keepTag: string): void {
+// Keep only `keepDir` of `keepTag`. A server running from a removed file keeps
+// working (the OS holds the inode until the process exits).
+function pruneOtherReleases(
+  context: vscode.ExtensionContext,
+  keepTag: string,
+  keepDir: string,
+): void {
   const root = path.join(context.globalStorageUri.fsPath, "servers");
   try {
     for (const tag of fs.readdirSync(root)) {
-      if (tag !== keepTag) fs.rmSync(path.join(root, tag), { recursive: true, force: true });
+      const tagDir = path.join(root, tag);
+      if (tag !== keepTag) {
+        fs.rmSync(tagDir, { recursive: true, force: true });
+        continue;
+      }
+      for (const dir of fs.readdirSync(tagDir)) {
+        if (dir !== keepDir) fs.rmSync(path.join(tagDir, dir), { recursive: true, force: true });
+      }
     }
   } catch {
     /* nothing cached */
@@ -237,25 +249,23 @@ export async function resolveServerBinary(
     return override;
   }
 
-  const { os, arch } = platformToken();
-  const suffix = `-${os}-${arch}.tar.gz`;
+  const plat = platformToken();
+  const suffix = `-${plat}.tar.gz`;
 
   step("Resolving prebuilt server release...");
   const release = await resolveRelease();
   const asset = release.assets.find((a) => a.name.endsWith(suffix));
-  if (!asset) throw new Error(`Release ${release.tag} has no asset for ${os}-${arch}.`);
+  if (!asset) throw new Error(`Release ${release.tag} has no asset for ${plat}.`);
 
-  const cacheDir = path.join(
-    context.globalStorageUri.fsPath,
-    "servers",
-    release.tag,
-    `${os}-${arch}`,
-  );
+  // Keyed by the asset, whose name holds the version: a rolling tag such as
+  // develop-latest points at a new build over time.
+  const assetDir = asset.name.replace(/\.tar\.gz$/, "");
+  const cacheDir = path.join(context.globalStorageUri.fsPath, "servers", release.tag, assetDir);
   const binary = path.join(cacheDir, "bin", "dftracer_server");
   // Keep only the release we're about to use, so old downloads don't pile up.
-  pruneOtherReleases(context, release.tag);
+  pruneOtherReleases(context, release.tag, assetDir);
   if (fs.existsSync(binary)) {
-    log.info(`Using cached server ${release.tag} (${os}-${arch})`);
+    log.info(`Using cached server ${asset.name} (${release.tag})`);
     return binary;
   }
 
