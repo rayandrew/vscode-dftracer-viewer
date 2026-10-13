@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.0.7](https://github.com/rayandrew/vscode-dftracer-viewer/compare/v0.0.6...v0.0.7) (2026-10-13)
+
+### Features
+
+- download the server from llnl-asr/dftracer-utils releases ([964e152](https://github.com/rayandrew/vscode-dftracer-viewer/commit/964e15240b692e667178fef989d2b2cef818721c))
+- stop the server when its viewer sits idle ([f696e18](https://github.com/rayandrew/vscode-dftracer-viewer/commit/f696e1866a89ce2252e8389d8861af9c6c9aa742))
+
+### Bug Fixes
+
+- do not fail the server update when a delete fails ([39a993d](https://github.com/rayandrew/vscode-dftracer-viewer/commit/39a993d11138b0b48de9bc72c3cd6c7e02cb5aef))
+- send GITHUB_TOKEN to the GitHub API when set ([c13a878](https://github.com/rayandrew/vscode-dftracer-viewer/commit/c13a878f0d19019a7cbe8ad6a6f2f9d470862e05))
+
 ## [0.0.6](https://github.com/rayandrew/vscode-dftracer-viewer/compare/v0.0.5...v0.0.6) (2026-08-24)
 
 ### Features
